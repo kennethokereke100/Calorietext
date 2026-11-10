@@ -1,0 +1,7 @@
+project_id = "calorietext"
+
+[functions.sendblue-webhook]
+# Sendblue uses its own shared-secret header, not a Supabase user JWT.
+# The handler rejects requests before reading data unless that secret matches.
+verify_jwt = false
+entrypoint = "./functions/sendblue-webhook/index.ts"
