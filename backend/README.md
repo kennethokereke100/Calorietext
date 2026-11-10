@@ -22,14 +22,21 @@ provider credentials are included here.
   acknowledgments. Ordinary replies do not repeat the command menu. The same AI
   request can choose a reaction: 👍 for simple thanks, 👋 for greetings and
   friendly gestures, 😋 for ordinary hunger, 😔 for displeasure, 💪 for a logged
-  meal estimated at 20g+ protein, 💧 for water, or 🙌 for a safe workout milestone.
+  text-only meal estimated at 20g+ protein, 💧 for water, or 🙌 for a safe workout milestone.
+  Food/drink photos use one matching emoji from a labeled catalog, such as
+  burger 🍔, pineapple 🍍, wine 🍷, pizza 🍕, coffee ☕, or water 💧. For mixed
+  plates, the model chooses the main item or the item asked about. A photo match
+  takes priority over 💪, even for a protein-rich meal. Unfamiliar food/drinks,
+  unclear food images, or no suitable emoji use 😋 without guessing an identity
+  or inventing a meal estimate. Non-food images and sensitive contexts do not
+  get this fallback. Emoji selection shares the existing vision request.
   Saying "I'm hungry" or asking for food ideas does not create a meal entry.
   Displeasure takes priority over
   polite words or sarcasm. Simple standalone thanks and greetings have a short
   path without an AI call, including "what's up" and a standalone "whatsapp"
   greeting; questions about the WhatsApp app and other longer messages retain
   their full context. Neutral
-  questions, uncertain inputs, and sensitive health or body-image contexts
+  text questions, non-food images, and sensitive health or body-image contexts
   should get no reaction. Complaints also receive a helpful written response.
 - Reactions are optional iMessage tapbacks, not extra text messages. Only a
   recognized iMessage transport and an unchanged primary UUID handle qualify;
@@ -120,11 +127,14 @@ npm ci --prefix backend --ignore-scripts
 node --test backend/tests/*.test.mjs
 ```
 
-All 42 Node tests passed, including a greeting through the REST adapter with
+All 44 Node tests passed, including a greeting through the REST adapter with
 empty HTTP 201 insert responses, preservation of false RPC results, synthetic
 HEIC conversion, pixel limits, corrupt inputs, and the authenticated media check.
 Reaction tests cover transport/handle filtering, the protein estimate requirement,
 completion ordering, failures without replay, opt-out, and ignored reaction callbacks.
+Photo-reaction tests verify single-emoji/schema validity, food/drink and fallback
+outputs through the full processor, no extra AI call, and no invented meal entry.
+These use stubbed classifications and do not measure real-world vision accuracy.
 Typing checks cover request ordering, idempotent cleanup, failure isolation,
 and opt-out/service filtering. Photo-only JPEG and HEIC tests hold each stage
 open to verify dots stay active during download, analysis, and send handoff;

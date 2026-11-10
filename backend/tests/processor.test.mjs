@@ -4,8 +4,8 @@ import { readFileSync } from "node:fs";
 import { processOne } from "../supabase/functions/process-messages/processor.mjs";
 import { encryptPayload, decryptPayload, phoneHash } from "../supabase/functions/_shared/runtime.mjs";
 import { trustedMediaUrl, loadImage } from "../supabase/functions/process-messages/media.mjs";
-import { validateReply, generateReply } from "../supabase/functions/process-messages/ai.mjs";
-import { sendReaction } from "../supabase/functions/process-messages/reactions.mjs";
+import { validateReply, generateReply, REPLY_SCHEMA } from "../supabase/functions/process-messages/ai.mjs";
+import { sendReaction, FOOD_REACTIONS } from "../supabase/functions/process-messages/reactions.mjs";
 import { startTyping } from "../supabase/functions/process-messages/typing.mjs";
 
 const ENV = { CALORIETEXT_INGEST_ENABLED:"true",CALORIETEXT_REPLY_ENABLED:"true",OPENAI_API_KEY:"test-only-openai",
@@ -111,6 +111,40 @@ test("AI reactions are constrained and protein reactions require a substantial e
   for(const estimate of [null,meal]) assert.equal(validateReply({reply:"Okay",meal:estimate,reaction:"💪"}).reaction,null);
   assert.equal(validateReply({reply:"Okay",meal:{...meal,protein_g:30},reaction:"💪"}).reaction,"💪");
   for(const reaction of ["👍","😊","😔","👋","😋"]) assert.equal(validateReply({reply:"Okay",meal:null,reaction}).reaction,reaction);
+});
+
+test("food reactions satisfy the strict schema and one-emoji transport contract",()=>{
+  const segmenter=new Intl.Segmenter("en",{granularity:"grapheme"});
+  for(const emoji of Object.values(FOOD_REACTIONS)) {
+    assert.equal([...segmenter.segment(emoji)].length,1);
+    assert.ok(REPLY_SCHEMA.properties.reaction.enum.includes(emoji));
+    assert.equal(validateReply({reply:"An estimate needs a portion size.",meal:null,reaction:emoji}).reaction,emoji);
+  }
+  for(const reaction of ["burger","🍔🍟"," 🍍","🍷 ","-🍔"]) {
+    assert.throws(()=>validateReply({reply:"Okay",meal:null,reaction}),/invalid_ai_reaction/);
+  }
+});
+
+test("photo reactions preserve the model's food match, fallback and context using one AI call",async()=>{
+  // Stubbed classifications exercise the full photo/schema/transport path;
+  // they are not a vision-accuracy benchmark.
+  for(const [reaction,aiMeal] of [["🍔",{...meal,description:"Burger",protein_g:30}],
+    ["🍍",meal],["🍷",meal],["💧",{...meal,description:"Water",calories:0,protein_g:0,carbs_g:0,fat_g:0}],
+    ["😋",null],["😔",null],[null,null]]) {
+    const f=await fixture({text:"",media:"https://storage.googleapis.com/inbound-file-store/food.jpg",
+      service:"iMessage",messageHandle:"00000000-0000-4000-8000-000000000001",reaction,aiMeal});
+    assert.equal((await f.run()).state,"sent");
+    const ai=f.requests.filter(r=>r.url.includes("api.openai.com"));
+    assert.equal(ai.length,1);
+    assert.equal(JSON.parse(ai[0].body).input.at(-1).content[1].type,"input_image");
+    const reactions=f.requests.filter(r=>r.url.endsWith("/send-reaction"));
+    assert.equal(reactions.length,reaction?1:0);
+    if(reaction) assert.equal(JSON.parse(reactions[0].body).reaction,reaction);
+    assert.equal(f.calls.filter(c=>c.path.startsWith("calorietext_meals?on_conflict")).length,aiMeal?1:0);
+    const requestCount=f.requests.length;
+    assert.equal((await f.run()).state,"empty");
+    assert.equal(f.requests.length,requestCount);
+  }
 });
 
 test("simple thanks and greetings react without AI while qualified messages keep their context",async()=>{

@@ -1,6 +1,28 @@
 import { sendblueHeaders } from "../_shared/runtime.mjs";
 
-export const REACTIONS = Object.freeze(["💪", "💧", "🙌", "👍", "😊", "😔", "👋", "😋"]);
+// One emoji per photo, selected by the existing vision request. Keep the
+// prompt's labeled choices and the strict response schema in sync.
+export const FOOD_REACTIONS = Object.freeze({
+  burger:"🍔", pineapple:"🍍", pizza:"🍕", fries:"🍟", hot_dog:"🌭", sandwich:"🥪",
+  taco:"🌮", burrito:"🌯", salad:"🥗", pasta:"🍝", noodles:"🍜", rice:"🍚",
+  curry_rice:"🍛", soup_or_stew:"🍲", paella:"🥘", sushi:"🍣", dumplings:"🥟",
+  falafel:"🧆", chicken_leg:"🍗", steak:"🥩", bacon:"🥓", egg:"🥚", fried_egg:"🍳",
+  fish:"🐟", shrimp:"🦐", lobster:"🦞", crab:"🦀", oyster:"🦪",
+  bread:"🍞", baguette:"🥖", croissant:"🥐", bagel:"🥯", pancakes:"🥞", waffle:"🧇",
+  cheese:"🧀", pretzel:"🥨", popcorn:"🍿", peanuts:"🥜", beans:"🫘",
+  apple:"🍎", green_apple:"🍏", banana:"🍌", orange:"🍊", lemon:"🍋", pear:"🍐",
+  peach:"🍑", cherries:"🍒", grapes:"🍇", watermelon:"🍉", melon:"🍈",
+  strawberries:"🍓", blueberries:"🫐", mango:"🥭", kiwi:"🥝", coconut:"🥥",
+  avocado:"🥑", tomato:"🍅", broccoli:"🥦", carrot:"🥕", corn:"🌽", cucumber:"🥒",
+  leafy_greens:"🥬", potato:"🥔", sweet_potato:"🍠", eggplant:"🍆", bell_pepper:"🫑",
+  cake:"🍰", cupcake:"🧁", cookie:"🍪", doughnut:"🍩", ice_cream:"🍨",
+  soft_serve:"🍦", chocolate:"🍫", candy:"🍬", pie:"🥧", honey:"🍯",
+  wine:"🍷", beer:"🍺", cocktail:"🍸", tropical_drink:"🍹", milk:"🥛",
+  coffee:"☕", tea:"🍵", bubble_tea:"🧋", juice_or_soft_drink:"🥤", water:"💧",
+});
+export const REACTIONS = Object.freeze([...new Set([
+  "💪", "💧", "🙌", "👍", "😊", "😔", "👋", "😋", ...Object.values(FOOD_REACTIONS),
+])]);
 // Primary handles are UUIDs on the pilot line. Do not derive a parent from
 // attachment-specific handles or guess multipart indexes.
 const PRIMARY_HANDLE = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
