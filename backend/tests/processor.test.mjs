@@ -5,13 +5,14 @@ import { encryptPayload, decryptPayload, phoneHash } from "../supabase/functions
 import { trustedMediaUrl, loadImage } from "../supabase/functions/process-messages/media.mjs";
 import { validateReply, generateReply } from "../supabase/functions/process-messages/ai.mjs";
 import { sendReaction } from "../supabase/functions/process-messages/reactions.mjs";
+import { startTyping } from "../supabase/functions/process-messages/typing.mjs";
 
 const ENV = { CALORIETEXT_INGEST_ENABLED:"true",CALORIETEXT_REPLY_ENABLED:"true",OPENAI_API_KEY:"test-only-openai",
   SENDBLUE_API_KEY:"test-only-sendblue",SENDBLUE_API_SECRET:"test-only-sendblue-secret",MESSAGE_ENCRYPTION_KEY:"ab".repeat(32),PHONE_HASH_KEY:"cd".repeat(32),
   SENDBLUE_FROM_NUMBER:"+12025550123",PILOT_ALLOWED_NUMBERS:"+12025550124" };
 const meal = { description:"One apple",calories:95,protein_g:0.5,carbs_g:25,fat_g:0.3 };
 async function fixture({text="hello",media="",allowed=true,optedOut=false,budget=true,claim=true,lease=true,sendFails=false,mealWriteFails=false,
-  service=null,reaction=null,aiMeal=meal,reactionFails=false,messageHandle="inbound-test"}={}) {
+  service=null,reaction=null,aiMeal=meal,reactionFails=false,typingFails=false,messageHandle="inbound-test"}={}) {
   const event = {id:"event-id",lock_token:"lock-id",payload_ciphertext:await encryptPayload({from_number:allowed?"+12025550124":"+12025550125",to_number:ENV.SENDBLUE_FROM_NUMBER,content:text,media_url:media,message_handle:messageHandle,service},ENV.MESSAGE_ENCRYPTION_KEY)};
   const calls=[], requests=[];
   const db=async(path,opts={})=>{
@@ -38,6 +39,10 @@ async function fixture({text="hello",media="",allowed=true,optedOut=false,budget
       assert.ok(calls.some(c=>c.body?.status==="completed"),"text must be completed before reacting");
       if(reactionFails) throw new Error("reaction_timeout");
       return Response.json({status:"OK"});
+    }
+    if(url.endsWith("/send-typing-indicator")) {
+      if(typingFails) throw new Error("typing_timeout");
+      return Response.json({status:"QUEUED"});
     }
     throw new Error("Unexpected external request");
   };
@@ -141,8 +146,46 @@ test("contextual reactions follow a completed text and are never replayed",async
       message_handle:"00000000-0000-4000-8000-000000000001",reaction:"💪"});
     assert.equal(f.calls.some(c=>["failed","uncertain"].includes(c.body?.status)),false);
     assert.equal((await f.run()).state,"empty");
-    assert.equal(f.requests.length,3);
+    assert.equal(f.requests.length,5);
   }
+});
+
+test("typing starts before preparation and stops before sending or recording a failure",async()=>{
+  for(const options of [{},{typingFails:true},{mealWriteFails:true},{sendFails:true},{lease:false}]) {
+    const f=await fixture({service:"iMessage",text:"I ate an apple",...options});
+    const outcome=await f.run();
+    assert.equal(outcome.state,options.mealWriteFails?"retry_pending":options.sendFails?"send_needs_review":options.lease===false?"lease_lost":"sent");
+    const indicators=f.requests.filter(r=>r.url.endsWith("/send-typing-indicator"));
+    assert.deepEqual(indicators.map(r=>JSON.parse(r.body).state),["start","stop"]);
+    assert.deepEqual(JSON.parse(indicators[0].body),{number:ENV.PILOT_ALLOWED_NUMBERS,from_number:ENV.SENDBLUE_FROM_NUMBER,state:"start",max_duration_ms:60000});
+    assert.equal(JSON.parse(indicators[1].body).max_duration_ms,undefined);
+    assert.ok(f.requests.indexOf(indicators[0])<f.requests.findIndex(r=>r.url.includes("api.openai.com")));
+    const sendIndex=f.requests.findIndex(r=>r.url.endsWith("/send-message"));
+    if(sendIndex>=0) assert.ok(f.requests.indexOf(indicators[1])<sendIndex);
+    assert.equal(f.requests.filter(r=>r.url.endsWith("/send-message")).length,options.mealWriteFails||options.lease===false?0:1);
+  }
+});
+
+test("typing does not contact unsupported services, opted-out or unapproved users",async()=>{
+  for(const options of [{service:"SMS"},{service:"RCS"},{service:null},{text:"STOP"},{optedOut:true},{allowed:false},{claim:false}]) {
+    const f=await fixture({service:"iMessage",...options});await f.run();
+    assert.equal(f.requests.some(r=>r.url.endsWith("/send-typing-indicator")),false);
+  }
+});
+
+test("typing cleanup waits for start and remains idempotent even after provider errors",async()=>{
+  const states=[];let release;
+  const gate=new Promise(resolve=>{release=resolve;});
+  const stop=startTyping({getEnv:key=>ENV[key],payload:{service:"iMessage",from_number:ENV.PILOT_ALLOWED_NUMBERS},
+    fetchImpl:async(_url,opts)=>{
+      const state=JSON.parse(opts.body).state;states.push(state);
+      if(state==="start") await gate;
+      return new Response("unsupported firmware",{status:503});
+    }});
+  const first=stop();const second=stop();
+  assert.deepEqual(states,["start"]);
+  release();await Promise.all([first,second]);await stop();
+  assert.deepEqual(states,["start","stop"]);
 });
 
 test("unsupported services, unknown or attachment handles and absent reactions make no reaction request",async()=>{

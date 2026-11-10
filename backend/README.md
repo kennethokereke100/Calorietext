@@ -34,6 +34,14 @@ provider credentials are included here.
   unsupported lines, failures, and timeouts cannot replay the text. Reaction
   callbacks and App Cards do not trigger the assistant. A crash can omit a
   cosmetic reaction; it is never retried. Emoji in reply text still work normally.
+- iMessage typing dots start after contact and opt-out checks, alongside reply
+  preparation (including photo processing), and stop when the reply is ready or
+  processing fails. Start and stop calls have 1.5-second timeouts and cannot fail
+  or replay the reply. Cleanup completes before releasing the queue lease, and
+  a 60-second provider expiry bounds a crashed worker's indicator. There is no
+  artificial typing delay, extra AI call, recurring job, or SMS/RCS indicator.
+  The configured line accepted a short start/stop probe. Delivery is best effort
+  and requires a recent iMessage conversation; a new contact may not see dots yet.
 - Photos are fetched only from the documented Sendblue CDN bucket, without
   redirects, with an 8 MB bound and JPEG/PNG/WebP signature checks. HEIC/HEIF
   containers with supported HEVC brands are converted inside the backend to
@@ -63,8 +71,9 @@ photo arrived as HEIC and triggered the old format fallback. Automatic conversio
 is now deployed and passed a hosted check with that same photo; a new photo
 message subsequently produced a stored meal estimate. The line also accepted a
 test 😊 reaction on the tester's recent thank-you message. API acceptance does
-not confirm the reaction's appearance on the phone. The public website button
-remains in demo mode.
+not confirm the reaction's appearance on the phone. At the owner's request,
+the public website now opens Messages to the pilot line. Only approved,
+verified contacts receive replies; sample website conversations remain demos.
 
 `schedule.sql` is a reviewable proposal, **not an applied migration**. Recurring
 worker calls and retention deletes still await the owner's approval; the latest
@@ -102,11 +111,13 @@ npm ci --prefix backend --ignore-scripts
 node --test backend/tests/*.test.mjs
 ```
 
-All 37 Node tests passed, including a greeting through the REST adapter with
+All 40 Node tests passed, including a greeting through the REST adapter with
 empty HTTP 201 insert responses, preservation of false RPC results, synthetic
 HEIC conversion, pixel limits, corrupt inputs, and the authenticated media check.
 Reaction tests cover transport/handle filtering, the protein estimate requirement,
 completion ordering, failures without replay, opt-out, and ignored reaction callbacks.
+Typing checks cover request ordering, idempotent cleanup, failure isolation,
+and opt-out/service filtering.
 The HEIC fixture is a generated solid-color image, not a tester's photo.
 `tests/database.sql` verifies initial table permissions
 and constraints. `tests/pilot-database.sql` verifies worker leases, send fencing,
@@ -145,9 +156,9 @@ only. It runs no AI request, sends no message, and stores no photo.
    Vault, then apply the reviewed `schedule.sql`. The retry job runs once per
    minute only when work is pending; hourly cleanup removes queue records after
    their 24-hour expiry and usage counters older than 30 days.
-5. Keep the public website in demo mode until this test succeeds and public
+5. The website's Messages links are enabled for the private pilot. Public
    onboarding, ownership authorization, delivery reconciliation, and retention
-   for longer-lived client/meal/message history are designed.
+   for longer-lived client/meal/message history remain future work.
 
 Completed queue payloads are cleared immediately, but the queue expiry column
 does not remove failed payloads by itself. Until the cleanup job is approved,

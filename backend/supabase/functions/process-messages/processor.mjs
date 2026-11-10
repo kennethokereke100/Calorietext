@@ -2,6 +2,7 @@ import { database, encryptPayload, decryptPayload, phoneHash, sendblueHeaders } 
 import { generateReply } from "./ai.mjs";
 import { loadImage } from "./media.mjs";
 import { sendReaction } from "./reactions.mjs";
+import { startTyping } from "./typing.mjs";
 const STOP = /^(stop|stopall|unsubscribe|cancel|end|quit)$/i;
 const START = /^(start|unstop)$/i;
 const HELP = /^(help|hi|hello|hey|get started)$/i;
@@ -22,6 +23,7 @@ export async function processOne({ getEnv, fetchImpl = fetch, db = database(getE
   const key = getEnv("MESSAGE_ENCRYPTION_KEY");
   const path = `calorietext_webhook_events?id=eq.${event.id}&lock_token=eq.${event.lock_token}`;
   let sendStarted = false;
+  let stopTyping = async () => {};
   const finish = (status, last_error = null) => db(path, { method: "PATCH", body: {
     status, last_error, processed_at: new Date().toISOString(),
     ...(status === "completed" ? { payload_ciphertext: "v1:cleared", reply_ciphertext: null } : {}),
@@ -48,6 +50,9 @@ export async function processOne({ getEnv, fetchImpl = fetch, db = database(getE
     }
     if (client.opted_out_at && !START.test(text)) { await finish("completed", "opted_out"); return { state: "opted_out" }; }
     if (START.test(text)) await db(`calorietext_clients?id=eq.${client.id}`, { method: "PATCH", body: { opted_out_at: null, consented_at: new Date().toISOString() } });
+    // Only after contact approval and opt-out checks. Covers photo preparation
+    // and model latency, while SMS/RCS continue without a typing request.
+    stopTyping = startTyping({ getEnv, fetchImpl, payload });
 
     await db("calorietext_messages?on_conflict=provider_message_id", { method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {
       client_id: client.id, provider_message_id: payload.message_handle, direction: "inbound",
@@ -89,6 +94,9 @@ export async function processOne({ getEnv, fetchImpl = fetch, db = database(getE
       await db("calorietext_meals?on_conflict=source_message_id", { method:"POST", prefer:"resolution=ignore-duplicates,return=minimal",
         body: { ...result.meal, client_id: client.id, source_message_id: message.id, is_estimate:true } });
     }
+    // Stop before releasing the queue lease so a subsequent reply's dots
+    // cannot be cleared by this worker's cleanup.
+    await stopTyping();
     if (!await db("rpc/calorietext_begin_send", { method:"POST", body: { event_id:event.id,event_lock:event.lock_token } })) return { state:"lease_lost" };
     sendStarted = true;
     // The vendor's send endpoint does not document an idempotency key. Never blindly retry an ambiguous send.
@@ -107,6 +115,7 @@ export async function processOne({ getEnv, fetchImpl = fetch, db = database(getE
     const reaction = await sendReaction({ getEnv, fetchImpl, payload, reaction: result.reaction });
     return { state:"sent", reaction };
   } catch (error) {
+    await stopTyping();
     const safeCode = /^[a-z_]+(?:_\d{3})?$/.test(error.message || "") ? error.message : "processing_failed";
     try { await db(`${path}&status=in.(processing,sending)`, { method:"PATCH", body: {
       status:sendStarted ? "uncertain" : "failed",last_error:safeCode,retry_after:new Date(Date.now()+60000).toISOString(),
