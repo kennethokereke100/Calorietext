@@ -33,12 +33,16 @@ The database and `sendblue-webhook`, `process-messages`, and `connection-check`
 functions are deployed, and Sendblue's receive webhook is configured with its
 shared secret. OpenAI authentication, a small model call, structured
 meal output, Sendblue authentication, and database access passed hosted checks.
-Both `CALORIETEXT_INGEST_ENABLED` and `CALORIETEXT_REPLY_ENABLED` remain **false**.
-Activation requires the owner's explicit approval. The public website button
-remains in demo mode until a complete phone conversation succeeds.
+After the owner's explicit approval, both `CALORIETEXT_INGEST_ENABLED` and
+`CALORIETEXT_REPLY_ENABLED` were enabled for the verified allowlisted tester.
+The authenticated connection check confirmed both flags are **true** and all
+three service connections pass on 2026-11-10 UTC. The database still enforces
+20 worker AI requests per UTC day. The real-phone text/photo test is pending;
+the public website button remains in demo mode.
 
 `schedule.sql` is a reviewable proposal, **not an applied migration**. Recurring
-worker calls, retention deletes, and the live flags await the owner's approval.
+worker calls and retention deletes still await the owner's approval; the latest
+approval covered private replies only.
 Without the retry job, failed or overlapping queue
 work may wait for another webhook wake-up or a manual worker invocation.
 
@@ -58,8 +62,8 @@ Save these in Supabase Edge Function Secrets, never in Git or the website:
 | `MESSAGE_ENCRYPTION_KEY` | 32 random bytes as 64 hex characters. Preserve it to read existing encrypted records. |
 | `PHONE_HASH_KEY` | Separate 32-byte HMAC key as 64 hex characters. Preserve it for stable lookups. |
 | `CALORIETEXT_ADMIN_SECRET` | Separate random secret for operator and worker endpoints. |
-| `CALORIETEXT_INGEST_ENABLED` | Incoming processing switch; currently false. |
-| `CALORIETEXT_REPLY_ENABLED` | Outgoing reply switch; currently false. |
+| `CALORIETEXT_INGEST_ENABLED` | Incoming processing switch; true for the approved private pilot. |
+| `CALORIETEXT_REPLY_ENABLED` | Outgoing reply switch; true for the approved private pilot. |
 
 Supabase supplies the database URL and backend keys. New `SUPABASE_SECRET_KEYS`
 keys are preferred, with a legacy environment-key fallback. No Supabase secret
@@ -90,17 +94,19 @@ and operator endpoints validate `x-calorietext-admin-secret` instead.
 The optional `?test_ai=true` and `?test_reply=true` flags run fixed, small model
 checks that use API balance; they accept no custom user prompt and send no texts.
 
-## Pending approval and real-phone test
+## Real-phone test and pending recurring jobs
 
-1. Obtain approval to activate the private flags, recurring retries, and retention.
-2. If approved, configure `calorietext_worker_url` and `calorietext_worker_secret`
-   in Supabase Vault, then apply the reviewed `schedule.sql`. The retry job runs
-   once per minute only when work is pending; the hourly cleanup removes queue
-   records after their 24-hour expiry and usage counters older than 30 days.
-3. Have the allowlisted tester send `hello`, a food photo, a meal description,
+1. Private activation is approved and verified. Have the allowlisted tester
+   first send `hello`, then a food photo after receiving the greeting.
+2. Continue with a meal description,
    `TODAY`, `STOP`, and `START`. Verify delivery, estimates, and stored totals.
-4. Review any `uncertain` sends manually before retrying. The operator must check
+3. Review any `uncertain` sends manually before retrying. The operator must check
    Sendblue for an existing send; blindly replaying can duplicate messages.
+4. Recurring retries and retention still need separate approval. If approved,
+   configure `calorietext_worker_url` and `calorietext_worker_secret` in Supabase
+   Vault, then apply the reviewed `schedule.sql`. The retry job runs once per
+   minute only when work is pending; hourly cleanup removes queue records after
+   their 24-hour expiry and usage counters older than 30 days.
 5. Keep the public website in demo mode until this test succeeds and public
    onboarding, ownership authorization, delivery reconciliation, and retention
    for longer-lived client/meal/message history are designed.
