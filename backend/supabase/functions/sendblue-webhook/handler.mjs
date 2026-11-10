@@ -94,7 +94,7 @@ export function createHandler({ getEnv, fetchImpl = fetch, onRecorded = () => {}
     catch (error) { return json(error.message === "too_large" ? 413 : 400, { error: "invalid_request_body" }); }
     if (!event || typeof event !== "object" || Array.isArray(event)) return json(400, { error: "invalid_event" });
     // Status callbacks, group messages, reactions, and outbound deliveries are not user requests.
-    if (event.is_outbound !== false || event.status !== "RECEIVED" || event.group_id ||
+    if (event.is_outbound !== false || event.status !== "RECEIVED" || event.group_id || event.is_reaction === true || event.app_card ||
         (event.message_type && event.message_type !== "message")) return json(200, { ignored: true });
     if (event.to_number !== phone || !PHONE.test(event.from_number || "")) return json(400, { error: "invalid_recipient" });
     if (!allowed.has(event.from_number)) return json(200, { ignored: true });
@@ -117,7 +117,8 @@ export function createHandler({ getEnv, fetchImpl = fetch, onRecorded = () => {}
     try {
       // Keep only fields needed by a future consumer. Do not log or store the raw webhook.
       const payload = { from_number: event.from_number, to_number: phone,
-        content, media_url: media, message_handle: event.message_handle, opted_out: event.opted_out === true };
+        content, media_url: media, message_handle: event.message_handle, opted_out: event.opted_out === true,
+        service: ["iMessage", "SMS", "RCS"].includes(event.service) ? event.service : null };
       const encrypted = await encryptPayload(payload, encryptionKey);
       const result = await fetchImpl(`${baseUrl.replace(/\/$/, "")}/rest/v1/calorietext_webhook_events?on_conflict=provider_message_id&select=id`, {
         method: "POST",

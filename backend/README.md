@@ -18,6 +18,18 @@ provider credentials are included here.
 - OpenAI structured replies use `gpt-5.4-mini`, with response storage disabled,
   at most 800 output tokens, and a database-enforced ceiling of 20 worker AI calls
   per UTC day across the pilot. Operator connection tests are separate from this quota.
+- Replies use a relaxed texting tone, optional contextual emojis, and brief
+  acknowledgments. Ordinary replies do not repeat the command menu. The same AI
+  request can choose a reaction: 💪 for a logged meal estimated at 20g+ protein,
+  💧 for water, 🙌 for a safe workout milestone, or 😊 for thanks. Questions,
+  uncertain inputs, and sensitive health or body-image contexts should get no reaction.
+- Reactions are optional iMessage tapbacks, not extra text messages. Only a
+  recognized iMessage transport and an unchanged primary UUID handle qualify;
+  unknown/attachment-specific handles are skipped. There is no SMS/RCS tapback
+  attempt. A reaction is attempted once after the text is durably completed;
+  unsupported lines, failures, and timeouts cannot replay the text. Reaction
+  callbacks and App Cards do not trigger the assistant. A crash can omit a
+  cosmetic reaction; it is never retried. Emoji in reply text still work normally.
 - Photos are fetched only from the documented Sendblue CDN bucket, without
   redirects, with an 8 MB bound and JPEG/PNG/WebP signature checks. HEIC/HEIF
   containers with supported HEVC brands are converted inside the backend to
@@ -45,8 +57,10 @@ backend; after correcting empty successful REST insert responses, its retry
 completed and Sendblue reported the reply delivered. The first real camera
 photo arrived as HEIC and triggered the old format fallback. Automatic conversion
 is now deployed and passed a hosted check with that same photo; a new photo
-message still needs end-to-end analysis/delivery confirmation. The public
-website button remains in demo mode.
+message subsequently produced a stored meal estimate. The line also accepted a
+test 😊 reaction on the tester's recent thank-you message. API acceptance does
+not confirm the reaction's appearance on the phone. The public website button
+remains in demo mode.
 
 `schedule.sql` is a reviewable proposal, **not an applied migration**. Recurring
 worker calls and retention deletes still await the owner's approval; the latest
@@ -84,9 +98,11 @@ npm ci --prefix backend --ignore-scripts
 node --test backend/tests/*.test.mjs
 ```
 
-All 31 Node tests passed, including a greeting through the REST adapter with
+All 36 Node tests passed, including a greeting through the REST adapter with
 empty HTTP 201 insert responses, preservation of false RPC results, synthetic
 HEIC conversion, pixel limits, corrupt inputs, and the authenticated media check.
+Reaction tests cover transport/handle filtering, the protein estimate requirement,
+completion ordering, failures without replay, opt-out, and ignored reaction callbacks.
 The HEIC fixture is a generated solid-color image, not a tester's photo.
 `tests/database.sql` verifies initial table permissions
 and constraints. `tests/pilot-database.sql` verifies worker leases, send fencing,

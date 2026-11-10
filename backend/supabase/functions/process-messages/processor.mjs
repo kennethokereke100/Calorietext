@@ -1,11 +1,12 @@
 import { database, encryptPayload, decryptPayload, phoneHash, sendblueHeaders } from "../_shared/runtime.mjs";
 import { generateReply } from "./ai.mjs";
 import { loadImage } from "./media.mjs";
+import { sendReaction } from "./reactions.mjs";
 const STOP = /^(stop|stopall|unsubscribe|cancel|end|quit)$/i;
 const START = /^(start|unstop)$/i;
 const HELP = /^(help|hi|hello|hey|get started)$/i;
 const TODAY = /^(today|summary|daily total)$/i;
-const HELP_TEXT = "I'm Calorietext, your AI food and fitness assistant. Send a food photo or describe what you ate for an estimated calorie and macro breakdown. Text TODAY for your logged daily total (UTC). Photo estimates can be off; include portions for better results. Text STOP to pause replies.";
+const HELP_TEXT = "Hey! I'm Calorietext, your AI food and fitness buddy 👋 Send me a food pic or tell me what you ate, and I'll estimate the calories and macros. Include portions if you can. TODAY shows your logged daily total (UTC). STOP pauses replies.";
 
 export async function processOne({ getEnv, fetchImpl = fetch, db = database(getEnv, fetchImpl) }) {
   if (getEnv("CALORIETEXT_INGEST_ENABLED") !== "true" || getEnv("CALORIETEXT_REPLY_ENABLED") !== "true") return { state: "disabled" };
@@ -56,7 +57,7 @@ export async function processOne({ getEnv, fetchImpl = fetch, db = database(getE
         const day = new Date().toISOString().slice(0,10);
         const meals = await db(`calorietext_meals?client_id=eq.${client.id}&eaten_at=gte.${day}T00:00:00Z&select=calories,protein_g,carbs_g,fat_g`);
         const total = meals.reduce((a,m) => { for (const k of Object.keys(a)) a[k] += Number(m[k]); return a; }, { calories:0, protein_g:0, carbs_g:0, fat_g:0 });
-        result = { meal: null, reply: meals.length ? `Today's logged estimates (UTC): ${Math.round(total.calories)} calories, ${Math.round(total.protein_g)}g protein, ${Math.round(total.carbs_g)}g carbs, ${Math.round(total.fat_g)}g fat across ${meals.length} meal(s).` : "No meals logged today (UTC) yet. Send a food photo or describe what you ate." };
+        result = { meal: null, reply: meals.length ? `Here's your day so far (UTC) 🍽️\nAbout ${Math.round(total.calories)} calories\n${Math.round(total.protein_g)}g protein · ${Math.round(total.carbs_g)}g carbs · ${Math.round(total.fat_g)}g fat\nFrom ${meals.length} logged ${meals.length === 1 ? "meal" : "meals"}.` : "Nothing logged today yet (UTC). Send me a food pic or tell me what you ate 🍽️" };
       } else {
         let image;
         if (payload.media_url) {
@@ -98,7 +99,8 @@ export async function processOne({ getEnv, fetchImpl = fetch, db = database(getE
       payload_ciphertext:"v1:cleared",reply_ciphertext:null,last_error:null } });
     await db("calorietext_messages?on_conflict=provider_message_id", { method:"POST",prefer:"resolution=ignore-duplicates,return=minimal",
       body: { client_id:client.id,provider_message_id:sent.message_handle,direction:"outbound",body_ciphertext:await encryptPayload({content:result.reply},key) } });
-    return { state:"sent" };
+    const reaction = await sendReaction({ getEnv, fetchImpl, payload, reaction: result.reaction });
+    return { state:"sent", reaction };
   } catch (error) {
     const safeCode = /^[a-z_]+(?:_\d{3})?$/.test(error.message || "") ? error.message : "processing_failed";
     try { await db(`${path}&status=in.(processing,sending)`, { method:"PATCH", body: {

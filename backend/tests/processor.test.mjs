@@ -4,17 +4,19 @@ import { processOne } from "../supabase/functions/process-messages/processor.mjs
 import { encryptPayload, decryptPayload, phoneHash } from "../supabase/functions/_shared/runtime.mjs";
 import { trustedMediaUrl, loadImage } from "../supabase/functions/process-messages/media.mjs";
 import { validateReply, generateReply } from "../supabase/functions/process-messages/ai.mjs";
+import { sendReaction } from "../supabase/functions/process-messages/reactions.mjs";
 
 const ENV = { CALORIETEXT_INGEST_ENABLED:"true",CALORIETEXT_REPLY_ENABLED:"true",OPENAI_API_KEY:"test-only-openai",
   SENDBLUE_API_KEY:"test-only-sendblue",SENDBLUE_API_SECRET:"test-only-sendblue-secret",MESSAGE_ENCRYPTION_KEY:"ab".repeat(32),PHONE_HASH_KEY:"cd".repeat(32),
   SENDBLUE_FROM_NUMBER:"+12025550123",PILOT_ALLOWED_NUMBERS:"+12025550124" };
 const meal = { description:"One apple",calories:95,protein_g:0.5,carbs_g:25,fat_g:0.3 };
-async function fixture({text="hello",media="",allowed=true,optedOut=false,budget=true,claim=true,lease=true,sendFails=false,mealWriteFails=false}={}) {
-  const event = {id:"event-id",lock_token:"lock-id",payload_ciphertext:await encryptPayload({from_number:allowed?"+12025550124":"+12025550125",to_number:ENV.SENDBLUE_FROM_NUMBER,content:text,media_url:media,message_handle:"inbound-test"},ENV.MESSAGE_ENCRYPTION_KEY)};
+async function fixture({text="hello",media="",allowed=true,optedOut=false,budget=true,claim=true,lease=true,sendFails=false,mealWriteFails=false,
+  service=null,reaction=null,aiMeal=meal,reactionFails=false,messageHandle="inbound-test"}={}) {
+  const event = {id:"event-id",lock_token:"lock-id",payload_ciphertext:await encryptPayload({from_number:allowed?"+12025550124":"+12025550125",to_number:ENV.SENDBLUE_FROM_NUMBER,content:text,media_url:media,message_handle:messageHandle,service},ENV.MESSAGE_ENCRYPTION_KEY)};
   const calls=[], requests=[];
   const db=async(path,opts={})=>{
     calls.push({path,...opts});
-    if(path==="rpc/calorietext_claim_event") return claim?[event]:[];
+    if(path==="rpc/calorietext_claim_event") { const rows=claim?[event]:[];claim=false;return rows; }
     if(path==="rpc/calorietext_reserve_ai_call") return budget;
     if(path==="rpc/calorietext_begin_send") return lease;
     if(path.startsWith("calorietext_trainers?")) return [{id:"trainer-id"}];
@@ -27,10 +29,15 @@ async function fixture({text="hello",media="",allowed=true,optedOut=false,budget
   };
   const fetchImpl=async(url,opts)=>{
     requests.push({url,...opts});
-    if(url.includes("api.openai.com")) return Response.json({status:"completed",output:[{type:"message",content:[{type:"output_text",text:JSON.stringify({reply:"Estimated apple: about 95 calories.",meal})}]}]});
+    if(url.includes("api.openai.com")) return Response.json({status:"completed",output:[{type:"message",content:[{type:"output_text",text:JSON.stringify({reply:"Estimated apple: about 95 calories.",meal:aiMeal,reaction})}]}]});
     if(url.includes("send-message")) {
       if(sendFails) throw new Error("Sensitive provider failure must not be persisted");
       return Response.json({message_handle:"outbound-test",status:"QUEUED"});
+    }
+    if(url.endsWith("/send-reaction")) {
+      assert.ok(calls.some(c=>c.body?.status==="completed"),"text must be completed before reacting");
+      if(reactionFails) throw new Error("reaction_timeout");
+      return Response.json({status:"OK"});
     }
     throw new Error("Unexpected external request");
   };
@@ -83,9 +90,57 @@ test("media rejects internal URLs, credentials, other buckets and misleading hos
 });
 
 test("AI response rejects invalid numeric estimates and oversized replies",()=>{
-  assert.equal(validateReply({reply:"Fine",meal:null}).meal,null);
+  assert.equal(validateReply({reply:"Fine",meal:null,reaction:null}).meal,null);
   for(const bad of [{reply:"",meal:null},{reply:"x".repeat(1601),meal:null},{reply:"Fine",meal:{...meal,calories:-1}},
-    {reply:"Fine",meal:{...meal,calories:NaN}},{reply:"Fine",meal:{...meal,fat_g:Infinity}}]) assert.throws(()=>validateReply(bad));
+    {reply:"Fine",meal:{...meal,calories:NaN}},{reply:"Fine",meal:{...meal,fat_g:Infinity}}]) assert.throws(()=>validateReply({...bad,reaction:null}));
+});
+
+test("AI reactions are constrained and protein reactions require a substantial estimate",()=>{
+  for(const reaction of [undefined,"anything","💪💪","-😊","🔥"]) {
+    assert.throws(()=>validateReply({reply:"Okay",meal:null,reaction}),/invalid_ai_reaction/);
+  }
+  for(const estimate of [null,meal]) assert.equal(validateReply({reply:"Okay",meal:estimate,reaction:"💪"}).reaction,null);
+  assert.equal(validateReply({reply:"Okay",meal:{...meal,protein_g:30},reaction:"💪"}).reaction,"💪");
+});
+
+test("contextual reactions follow a completed text and are never replayed",async()=>{
+  for(const reactionFails of [false,true]) {
+    const f=await fixture({text:"I ate chicken",aiMeal:{...meal,protein_g:30},reaction:"💪",service:"iMessage",reactionFails,
+      messageHandle:"00000000-0000-4000-8000-000000000001"});
+    assert.deepEqual(await f.run(),{state:"sent",reaction:reactionFails?"unavailable":"accepted"});
+    assert.equal(f.requests.filter(r=>r.url.endsWith("/send-message")).length,1);
+    const reactions=f.requests.filter(r=>r.url.endsWith("/send-reaction"));
+    assert.equal(reactions.length,1);
+    assert.deepEqual(JSON.parse(reactions[0].body),{from_number:ENV.SENDBLUE_FROM_NUMBER,
+      message_handle:"00000000-0000-4000-8000-000000000001",reaction:"💪"});
+    assert.equal(f.calls.some(c=>["failed","uncertain"].includes(c.body?.status)),false);
+    assert.equal((await f.run()).state,"empty");
+    assert.equal(f.requests.length,3);
+  }
+});
+
+test("unsupported services, unknown or attachment handles and absent reactions make no reaction request",async()=>{
+  const payload={service:"iMessage",message_handle:"00000000-0000-4000-8000-000000000001"};
+  for(const [patch,reaction] of [[{service:"SMS"},"😊"],[{service:"RCS"},"😊"],[{service:null},"😊"],
+    [{message_handle:"attachment-specific-handle"},"😊"],[{},undefined],[{},null],[{},"💪💪"]]) {
+    assert.equal(await sendReaction({getEnv:key=>ENV[key],payload:{...payload,...patch},reaction,
+      fetchImpl:()=>{throw new Error("must not send");}}),"skipped");
+  }
+});
+
+test("unsupported lines, malformed responses and timeouts are cosmetic failures only",async()=>{
+  for(const response of [new Response("unsupported_on_this_line",{status:422}),new Response("invalid JSON"),Response.json({status:"ERROR"})]) {
+    let attempts=0;
+    assert.equal(await sendReaction({getEnv:key=>ENV[key],payload:{service:"iMessage",message_handle:"00000000-0000-4000-8000-000000000001"},
+      reaction:"😊",fetchImpl:async()=>{attempts++;return response;}}),"unavailable");
+    assert.equal(attempts,1);
+  }
+  for(const patch of [{text:"STOP"},{optedOut:true},{lease:false},{sendFails:true}]) {
+    const f=await fixture({text:"Thanks",aiMeal:null,reaction:"😊",service:"iMessage",
+      messageHandle:"00000000-0000-4000-8000-000000000001",...patch});
+    await f.run();
+    assert.equal(f.requests.some(r=>r.url.endsWith("/send-reaction")),false);
+  }
 });
 
 test("AI requests limit output, disable response storage and handle incomplete generation",async()=>{

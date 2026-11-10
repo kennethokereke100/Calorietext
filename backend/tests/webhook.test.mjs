@@ -65,7 +65,7 @@ test("rejects non-POST requests and authenticates before parsing", async () => {
 test("does not record status callbacks, groups, reactions, or unapproved contacts", async () => {
   const { handler, calls } = setup();
   for (const patch of [{ is_outbound: true }, { status: "DELIVERED" }, { group_id: "group" },
-    { message_type: "reaction" }, { from_number: "+12025550125" }]) {
+    { message_type: "reaction" }, { is_reaction: true }, { app_card: {} }, { from_number: "+12025550125" }]) {
     const response = await handler(request({ ...EVENT, ...patch }));
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { ignored: true });
@@ -113,12 +113,21 @@ test("stores only encrypted normalized data with a fresh nonce", async () => {
   assert.deepEqual(await decode(records[0].payload_ciphertext), {
     from_number: EVENT.from_number, to_number: EVENT.to_number, content: EVENT.content,
     media_url: EVENT.media_url, message_handle: EVENT.message_handle,
-    opted_out: false,
+    opted_out: false, service: null,
   });
   assert.equal(calls[0].headers.apikey, "sb_secret_test_only");
   assert.equal(calls[0].headers.Authorization, undefined);
   assert.equal(calls[0].headers.Prefer, "resolution=ignore-duplicates,return=representation");
   assert.ok(calls[0].url.includes("on_conflict=provider_message_id"));
+});
+
+test("preserves only recognized transport metadata for optional reactions",async()=>{
+  for(const service of ["iMessage","SMS","RCS","unexpected"]){
+    const {handler,calls}=setup();
+    assert.equal((await handler(request({...EVENT,service}))).status,200);
+    const payload=await decode(JSON.parse(calls[0].body).payload_ciphertext);
+    assert.equal(payload.service,service==="unexpected"?null:service);
+  }
 });
 
 test("supports text-only and photo-only messages", async () => {
