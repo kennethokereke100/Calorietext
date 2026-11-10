@@ -47,7 +47,11 @@ export function database(getEnv, fetchImpl = fetch) {
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(10000),
     });
     if (!response.ok) throw new Error(`database_${response.status}`);
-    return response.status === 204 ? null : response.json();
+    if (response.status === 204) return null;
+    // PostgREST return=minimal inserts succeed with 201 and an empty body.
+    // Preserve JSON RPC values (including false), but do not parse absent data.
+    const responseBody = await response.text();
+    return responseBody.trim() === "" ? null : JSON.parse(responseBody);
   };
 }
 export function sendblueHeaders(getEnv) {

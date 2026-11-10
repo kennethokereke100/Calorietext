@@ -37,8 +37,10 @@ After the owner's explicit approval, both `CALORIETEXT_INGEST_ENABLED` and
 `CALORIETEXT_REPLY_ENABLED` were enabled for the verified allowlisted tester.
 The authenticated connection check confirmed both flags are **true** and all
 three service connections pass on 2026-11-10 UTC. The database still enforces
-20 worker AI requests per UTC day. The real-phone text/photo test is pending;
-the public website button remains in demo mode.
+20 worker AI requests per UTC day. The first real inbound greeting reached the
+backend; after correcting empty successful REST insert responses, its retry
+completed and Sendblue accepted the reply. Device delivery and the real-photo
+test still need confirmation. The public website button remains in demo mode.
 
 `schedule.sql` is a reviewable proposal, **not an applied migration**. Recurring
 worker calls and retention deletes still await the owner's approval; the latest
@@ -75,7 +77,9 @@ is sent to OpenAI, Sendblue, or the browser.
 node --test backend/tests/*.test.mjs
 ```
 
-All 23 Node tests passed. `tests/database.sql` verifies initial table permissions
+All 27 Node tests passed, including a greeting through the REST adapter with
+empty HTTP 201 insert responses and preservation of false RPC results.
+`tests/database.sql` verifies initial table permissions
 and constraints. `tests/pilot-database.sql` verifies worker leases, send fencing,
 daily limits, and private RPC access. Run the pilot database test only with the
 pilot disabled and its queue empty; its synthetic changes roll back. Hosted

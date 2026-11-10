@@ -34,8 +34,28 @@ async function fixture({text="hello",media="",allowed=true,optedOut=false,budget
     }
     throw new Error("Unexpected external request");
   };
-  return {run:()=>processOne({getEnv:key=>ENV[key],db,fetchImpl}),calls,requests};
+  return {run:()=>processOne({getEnv:key=>ENV[key],db,fetchImpl}),calls,requests,db,fetchImpl};
 }
+
+test("greeting completes through REST with empty successful insert responses",async()=>{
+  const f=await fixture();
+  const env={...ENV,SUPABASE_URL:"https://database.example.test",SUPABASE_SECRET_KEYS:JSON.stringify({default:"sb_secret_test_only"})};
+  let minimalWrites=0;
+  const fetchImpl=async(url,opts)=>{
+    if(!url.startsWith(`${env.SUPABASE_URL}/rest/v1/`)) return f.fetchImpl(url,opts);
+    const path=url.slice(`${env.SUPABASE_URL}/rest/v1/`.length);
+    const data=await f.db(path,{method:opts.method,body:opts.body?JSON.parse(opts.body):undefined});
+    if(opts.headers.Prefer.includes("return=minimal")) {
+      minimalWrites++;
+      return new Response(null,{status:201});
+    }
+    return Response.json(data);
+  };
+  assert.equal((await processOne({getEnv:key=>env[key],fetchImpl})).state,"sent");
+  assert.equal(minimalWrites,3);
+  assert.equal(f.requests.length,1);
+  assert.ok(f.calls.some(c=>c.body?.status==="completed"));
+});
 
 test("encryption detects tampering and phone hashes use a separate key",async()=>{
   const value=await encryptPayload({text:"private"},ENV.MESSAGE_ENCRYPTION_KEY);
