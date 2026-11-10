@@ -1,39 +1,49 @@
-# Calorietext
+# Calorietext website
 
-Calorie tracking that lives in your texts. This repository is the source of Kenneth's Calorietext project.
+The standalone Calorietext marketing website and interactive product demo.
 
-## Current version
+**Public demo:** https://kennethokereke100.github.io/Calorietext/
 
-A responsive marketing website modeled on the supplied Caltext reference, rebuilt with Calorietext branding. Includes a scroll-driven iPhone demo, three interactive feature tabs, optional sound, an accessible FAQ accordion, a sample messaging modal, QR navigation, and preview-specific privacy and terms pages. English landing routes: `/` and `/en`.
+The actual fitness application and its backend will be built separately. This repository does not run live AI, SMS, iMessage, phone calls, accounts, or payments.
 
-This is a website prototype. Sample conversations and nutrition values are illustrative. SMS, iMessage, photo analysis, voice calls, user accounts, payments, and persistent nutrition records are **not connected**. Get Started opens the interactive preview; it does not contact a phone number or start a subscription.
+## Website features
 
-## Run locally
+Responsive landing page, scroll-driven iPhone demo, three interactive feature tabs, optional sound, accessible FAQ accordion, sample messaging modal, QR navigation, and preview-specific privacy and terms pages. English landing routes: `/` and `/en`.
 
-Requires Node.js 22.13+ and pnpm.
+Sample conversations and nutrition values are illustrative. Get Started opens the demo; it does not contact a phone number or start a subscription.
+
+## Development
+
+Requires Node.js 22.13+ and pnpm. The pnpm version is pinned in `package.json`.
 
 ```sh
 pnpm install --frozen-lockfile
 pnpm dev
+pnpm exec tsc --noEmit
 ```
+
+## GitHub Pages
 
 ```sh
-pnpm exec tsc --noEmit
-pnpm build
+pnpm build:pages
 ```
 
-Built with React, TypeScript, Vinext, and Vite. The included Sites integration builds a Cloudflare Worker. `.openai/hosting.json` identifies the private hosted preview. Runtime tool configuration and credentials are excluded from Git.
+This builds a static Next.js export into `out/`. The default base path is `/Calorietext`, with trailing-slash routes so direct links to `/Calorietext/privacy/` and `/Calorietext/terms/` work on GitHub Pages. Fonts, images, scripts, navigation, and the QR code support the project URL. The output includes `.nojekyll`.
 
-## Project direction
+`.github/workflows/pages.yml` builds and publishes every push to `main`. The workflow can also be run manually from GitHub Actions. Repository **Settings → Pages → Source** is set to **GitHub Actions**. No custom domain or payment is required for the current public project demo.
 
-The planned product gives trainers their own AI assistant and phone number: food-photo calorie estimates, equipment recognition and usage guidance, trainer-approved meal and workout plans, progress tracking, text conversations, and voice calls. Trainer-authorized voice likeness is a later capability. No backend provider has been configured in this version.
+For a future root-level custom domain, set `NEXT_PUBLIC_BASE_PATH` to an empty string in the build environment and regenerate `public/qr.svg` for the new address. Custom domain registration and DNS setup are separate steps.
+
+## Original private preview
+
+`pnpm build` retains the Vinext/Cloudflare build used by the original private preview. Its identity is preserved in `.openai/hosting.json`. GitHub Pages uses the separate `build:pages` command and does not need Sites credentials or a Worker. Provider credentials and local runtime state are excluded from Git.
 
 ## Assets and design
 
-- Visual reference supplied by the project owner: https://caltext-frkp1pbad-midday.vercel.app/en
-- Interface and phone frame are newly implemented here; no source code from the Caltext repository is included.
-- Inter and Plus Jakarta Sans are bundled under their SIL Open Font Licenses in `public/fonts/`.
+- User-supplied visual reference: https://caltext-frkp1pbad-midday.vercel.app/en
+- The interface and phone frame are newly implemented here. No Caltext repository source is included.
+- Inter and Plus Jakarta Sans: bundled SIL Open Font Licenses in `public/fonts/`.
 - Salad photograph: https://images.unsplash.com/photo-1512621776951-a57141f2eefd (Unsplash).
-- QR code opens this project's private website preview; it does not initiate a text.
+- QR code opens the public GitHub Pages demo.
 
 The reference's customer count, testimonials, trial claims, social profiles, and placeholder phone number are not reused.
