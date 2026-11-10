@@ -113,6 +113,7 @@ test("stores only encrypted normalized data with a fresh nonce", async () => {
   assert.deepEqual(await decode(records[0].payload_ciphertext), {
     from_number: EVENT.from_number, to_number: EVENT.to_number, content: EVENT.content,
     media_url: EVENT.media_url, message_handle: EVENT.message_handle,
+    opted_out: false,
   });
   assert.equal(calls[0].headers.apikey, "sb_secret_test_only");
   assert.equal(calls[0].headers.Authorization, undefined);

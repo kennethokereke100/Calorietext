@@ -64,7 +64,7 @@ function adminHeaders(getEnv) {
   return { apikey: legacy, Authorization: `Bearer ${legacy}` };
 }
 
-export function createHandler({ getEnv, fetchImpl = fetch }) {
+export function createHandler({ getEnv, fetchImpl = fetch, onRecorded = () => {} }) {
   return async function handle(req) {
     if (req.method !== "POST") return json(405, { error: "method_not_allowed" });
     const secret = getEnv("SENDBLUE_WEBHOOK_SECRET");
@@ -117,7 +117,7 @@ export function createHandler({ getEnv, fetchImpl = fetch }) {
     try {
       // Keep only fields needed by a future consumer. Do not log or store the raw webhook.
       const payload = { from_number: event.from_number, to_number: phone,
-        content, media_url: media, message_handle: event.message_handle };
+        content, media_url: media, message_handle: event.message_handle, opted_out: event.opted_out === true };
       const encrypted = await encryptPayload(payload, encryptionKey);
       const result = await fetchImpl(`${baseUrl.replace(/\/$/, "")}/rest/v1/calorietext_webhook_events?on_conflict=provider_message_id&select=id`, {
         method: "POST",
@@ -129,6 +129,8 @@ export function createHandler({ getEnv, fetchImpl = fetch }) {
       if (!result.ok) return json(503, { error: "storage_unavailable" });
       const inserted = await result.json();
       if (!Array.isArray(inserted)) return json(503, { error: "storage_unavailable" });
+      // The database is durable; cron will recover if this best-effort wake-up fails.
+      try { onRecorded(); } catch { /* Still acknowledge the persisted event. */ }
       return json(200, { received: true, duplicate: inserted.length === 0 });
     } catch {
       // Do not acknowledge a message that was not durably recorded.
