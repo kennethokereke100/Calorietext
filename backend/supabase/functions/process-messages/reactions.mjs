@@ -23,12 +23,14 @@ export const FOOD_REACTIONS = Object.freeze({
 export const REACTIONS = Object.freeze([...new Set([
   "💪", "💧", "🙌", "👍", "😊", "😔", "👋", "😋", ...Object.values(FOOD_REACTIONS),
 ])]);
+// Reserved for the deterministic unsupported-video reply, not model selection.
+export const VIDEO_REACTION = "😢";
 // Primary handles are UUIDs on the pilot line. Do not derive a parent from
 // attachment-specific handles or guess multipart indexes.
 const PRIMARY_HANDLE = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 
 export async function sendReaction({ getEnv, fetchImpl = fetch, payload, reaction }) {
-  if (!REACTIONS.includes(reaction) || payload.service !== "iMessage" ||
+  if (!(REACTIONS.includes(reaction) || reaction === VIDEO_REACTION) || payload.service !== "iMessage" ||
       !PRIMARY_HANDLE.test(payload.message_handle || "")) return "skipped";
   // Cosmetic, one attempt only, after the text has been durably completed.
   // A timeout or unsupported line must never retry the text or the reaction.

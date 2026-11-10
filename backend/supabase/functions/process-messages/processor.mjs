@@ -1,7 +1,7 @@
 import { database, encryptPayload, decryptPayload, phoneHash, sendblueHeaders } from "../_shared/runtime.mjs";
 import { generateReply } from "./ai.mjs";
 import { loadImage } from "./media.mjs";
-import { sendReaction } from "./reactions.mjs";
+import { sendReaction, VIDEO_REACTION } from "./reactions.mjs";
 import { startTyping } from "./typing.mjs";
 import { markRead } from "./read-receipts.mjs";
 const STOP = /^(stop|stopall|unsubscribe|cancel|end|quit)$/i;
@@ -15,6 +15,7 @@ const GREETING = /^(hi|hello|hey|hiya|what(?:['’]?s)?\s*up|whatsapp|wassup|sup
 const THANKS = /^(thanks|thank\s+you|thx|ty)[!.]*$/i;
 const TODAY = /^(today|summary|daily total)$/i;
 const HELP_TEXT = "Hey! I'm Calorietext, your AI food and fitness buddy 👋 Send me a food pic or tell me what you ate, and I'll estimate the calories and macros. Include portions if you can. TODAY shows your logged daily total (UTC). STOP pauses replies.";
+const VIDEO_TEXT = "Sorry, I can't read videos yet 😢 We're planning to add that later. For now, send a screenshot from the video or describe what you'd like help with.";
 
 export async function processOne({ getEnv, fetchImpl = fetch, db = database(getEnv, fetchImpl) }) {
   if (getEnv("CALORIETEXT_INGEST_ENABLED") !== "true" || getEnv("CALORIETEXT_REPLY_ENABLED") !== "true") return { state: "disabled" };
@@ -80,7 +81,11 @@ export async function processOne({ getEnv, fetchImpl = fetch, db = database(getE
         if (payload.media_url) {
           await Promise.all([readReceipt, stopTyping.ready]);
           try { image = await loadImage(payload.media_url, fetchImpl); }
-          catch { result = { meal: null, reply: "I couldn't open that photo. Try opening it in Photos, taking a screenshot, and sending the screenshot here. You can also describe your meal and portions in a text." }; }
+          catch (error) {
+            result = error.message === "unsupported_video"
+              ? { meal: null, reply: VIDEO_TEXT, reaction: VIDEO_REACTION }
+              : { meal: null, reply: "I couldn't open that photo. Try opening it in Photos, taking a screenshot, and sending the screenshot here. You can also describe your meal and portions in a text." };
+          }
         }
         if (!result) {
           const reserved = await db("rpc/calorietext_reserve_ai_call", { method: "POST", body: {} });

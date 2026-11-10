@@ -15,7 +15,7 @@ const ENV = { CALORIETEXT_INGEST_ENABLED:"true",CALORIETEXT_REPLY_ENABLED:"true"
 const meal = { description:"One apple",calories:95,protein_g:0.5,carbs_g:25,fat_g:0.3 };
 async function fixture({text="hello",media="",allowed=true,optedOut=false,budget=true,claim=true,lease=true,sendFails=false,mealWriteFails=false,
   service=null,reaction=null,aiMeal=meal,reactionFails=false,typingFails=false,readFails=false,messageHandle="inbound-test",
-  requestGate=async()=>{},photoBytes=new Uint8Array([255,216,255,0])}={}) {
+  requestGate=async()=>{},photoBytes=new Uint8Array([255,216,255,0]),mediaHeaders={}}={}) {
   const event = {id:"event-id",lock_token:"lock-id",payload_ciphertext:await encryptPayload({from_number:allowed?"+12025550124":"+12025550125",to_number:ENV.SENDBLUE_FROM_NUMBER,content:text,media_url:media,message_handle:messageHandle,service},ENV.MESSAGE_ENCRYPTION_KEY)};
   const calls=[], requests=[];
   const db=async(path,opts={})=>{
@@ -38,7 +38,7 @@ async function fixture({text="hello",media="",allowed=true,optedOut=false,budget
       if(readFails) throw new Error("read_timeout");
       return Response.json({status:"OK"});
     }
-    if(url.startsWith("https://storage.googleapis.com/inbound-file-store/")) return new Response(photoBytes);
+    if(url.startsWith("https://storage.googleapis.com/inbound-file-store/")) return new Response(photoBytes,{headers:mediaHeaders});
     if(url.includes("api.openai.com")) return Response.json({status:"completed",output:[{type:"message",content:[{type:"output_text",text:JSON.stringify({reply:"Estimated apple: about 95 calories.",meal:aiMeal,reaction})}]}]});
     if(url.includes("send-message")) {
       if(sendFails) throw new Error("Sensitive provider failure must not be persisted");
@@ -304,6 +304,27 @@ test("photo-only JPEG and HEIC keep typing active through download, AI and send 
     const ai=JSON.parse(f.requests.find(r=>r.url.includes("api.openai.com")).body);
     assert.match(JSON.stringify(ai),/data:image\/jpeg;base64,/);
     assert.deepEqual(f.requests.filter(r=>r.url.endsWith("/send-typing-indicator")).map(r=>JSON.parse(r.body).state),["start","stop"]);
+  }
+});
+
+test("videos receive a friendly reply and crying reaction without AI or meal logging",async()=>{
+  for(const [media,mediaHeaders] of [["clip.mp4",{}],["clip.MOV",{}],["opaque",{"content-type":"video/webm"}]]) {
+    for(const service of ["iMessage","SMS"]) {
+      const f=await fixture({text:"Can you check this?",service,media:`https://storage.googleapis.com/inbound-file-store/${media}`,mediaHeaders,
+        messageHandle:"00000000-0000-4000-8000-000000000001"});
+      assert.equal((await f.run()).state,"sent");
+      const sends=f.requests.filter(r=>r.url.endsWith("/send-message"));
+      assert.equal(sends.length,1);
+      assert.equal(JSON.parse(sends[0].body).content,"Sorry, I can't read videos yet 😢 We're planning to add that later. For now, send a screenshot from the video or describe what you'd like help with.");
+      assert.equal(f.requests.some(r=>r.url.includes("api.openai.com")),false);
+      assert.equal(f.calls.some(c=>c.path==="rpc/calorietext_reserve_ai_call"||c.path.startsWith("calorietext_meals?on_conflict")),false);
+      const reaction=f.requests.find(r=>r.url.endsWith("/send-reaction"));
+      assert.equal(reaction?JSON.parse(reaction.body).reaction:null,service==="iMessage"?"😢":null);
+      if(service==="iMessage") {
+        assert.equal(f.requests.filter(r=>r.url.endsWith("/mark-read")).length,1);
+        assert.deepEqual(f.requests.filter(r=>r.url.endsWith("/send-typing-indicator")).map(r=>JSON.parse(r.body).state),["start","stop"]);
+      }
+    }
   }
 });
 

@@ -74,6 +74,15 @@ provider credentials are included here.
   1,536-pixel output long edge. Conversion copies no source EXIF/GPS metadata.
   Unsupported or oversized images get a screenshot fallback. The actual
   inbound camera-photo CDN and HEIC conversion passed a hosted operator check.
+- Video attachments get a short, friendly explanation that videos are not yet
+  supported, with a screenshot/text alternative and 😢 in the reply. Supported
+  iMessages also receive a best-effort 😢 tapback. Common video filename
+  extensions, video MIME types, and a bounded 512-byte container check identify
+  videos, including opaque MP4/MOV URLs. Detection cancels video downloads early
+  and distinguishes HEIC/AVIF image brands from MP4. No AI request, AI quota
+  reservation, or meal entry is made for a detected video. Unknown or corrupt
+  attachments keep the generic photo fallback. Future video support is described
+  as planned, without a release date.
 - Queue leases serialize work. A send with an uncertain result is marked
   `uncertain` for review, not automatically repeated: the vendor send endpoint
   does not document an idempotency key. A successful API acceptance is not proof
@@ -136,7 +145,7 @@ npm ci --prefix backend --ignore-scripts
 node --test backend/tests/*.test.mjs
 ```
 
-All 48 Node tests passed, including a greeting through the REST adapter with
+All 53 Node tests passed, including a greeting through the REST adapter with
 empty HTTP 201 insert responses, preservation of false RPC results, synthetic
 HEIC conversion, pixel limits, corrupt inputs, and the authenticated media check.
 Reaction tests cover transport/handle filtering, the protein estimate requirement,
@@ -151,6 +160,8 @@ unreadable images still clear the indicator after a single fallback reply.
 Read-receipt tests cover text/photo ordering, iMessage/RCS and opt-out filtering,
 provider errors, one reply after failure, and concurrent typing while read
 acknowledgment is pending.
+Video tests cover URL/MIME/signature detection, split streams, cancellation of
+large downloads, HEIC preservation, the crying reaction, and no AI/meal writes.
 The HEIC fixture is a generated solid-color image, not a tester's photo.
 `tests/database.sql` verifies initial table permissions
 and constraints. `tests/pilot-database.sql` verifies worker leases, send fencing,
