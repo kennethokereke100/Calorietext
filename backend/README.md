@@ -20,9 +20,13 @@ provider credentials are included here.
   per UTC day across the pilot. Operator connection tests are separate from this quota.
 - Replies use a relaxed texting tone, optional contextual emojis, and brief
   acknowledgments. Ordinary replies do not repeat the command menu. The same AI
-  request can choose a reaction: 💪 for a logged meal estimated at 20g+ protein,
-  💧 for water, 🙌 for a safe workout milestone, or 😊 for thanks. Questions,
-  uncertain inputs, and sensitive health or body-image contexts should get no reaction.
+  request can choose a reaction: 👍 for simple thanks, 😊 for friendly gestures,
+  😔 for displeasure, 💪 for a logged meal estimated at 20g+ protein, 💧 for
+  water, or 🙌 for a safe workout milestone. Displeasure takes priority over
+  polite words or sarcasm. Simple standalone thanks and greetings have a short
+  path without an AI call; longer messages retain their full context. Neutral
+  questions, uncertain inputs, and sensitive health or body-image contexts
+  should get no reaction. Complaints also receive a helpful written response.
 - Reactions are optional iMessage tapbacks, not extra text messages. Only a
   recognized iMessage transport and an unchanged primary UUID handle qualify;
   unknown/attachment-specific handles are skipped. There is no SMS/RCS tapback
@@ -98,7 +102,7 @@ npm ci --prefix backend --ignore-scripts
 node --test backend/tests/*.test.mjs
 ```
 
-All 36 Node tests passed, including a greeting through the REST adapter with
+All 37 Node tests passed, including a greeting through the REST adapter with
 empty HTTP 201 insert responses, preservation of false RPC results, synthetic
 HEIC conversion, pixel limits, corrupt inputs, and the authenticated media check.
 Reaction tests cover transport/handle filtering, the protein estimate requirement,
