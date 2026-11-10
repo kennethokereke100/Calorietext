@@ -3,6 +3,7 @@ import { generateReply } from "./ai.mjs";
 import { loadImage } from "./media.mjs";
 import { sendReaction } from "./reactions.mjs";
 import { startTyping } from "./typing.mjs";
+import { markRead } from "./read-receipts.mjs";
 const STOP = /^(stop|stopall|unsubscribe|cancel|end|quit)$/i;
 const START = /^(start|unstop)$/i;
 const HELP = /^(help|get started)$/i;
@@ -26,6 +27,7 @@ export async function processOne({ getEnv, fetchImpl = fetch, db = database(getE
   const path = `calorietext_webhook_events?id=eq.${event.id}&lock_token=eq.${event.lock_token}`;
   let sendStarted = false;
   let stopTyping = async () => {};
+  let readReceipt = Promise.resolve("skipped");
   const finish = (status, last_error = null) => db(path, { method: "PATCH", body: {
     status, last_error, processed_at: new Date().toISOString(),
     ...(status === "completed" ? { payload_ciphertext: "v1:cleared", reply_ciphertext: null } : {}),
@@ -54,6 +56,9 @@ export async function processOne({ getEnv, fetchImpl = fetch, db = database(getE
     if (START.test(text)) await db(`calorietext_clients?id=eq.${client.id}`, { method: "PATCH", body: { opted_out_at: null, consented_at: new Date().toISOString() } });
     // Only after contact approval and opt-out checks. Covers photo preparation
     // and model latency, while SMS/RCS continue without a typing request.
+    // Mark the conversation read as work begins, alongside typing. Neither
+    // cosmetic request may retry or prevent the actual reply.
+    readReceipt = markRead({ getEnv, fetchImpl, payload });
     stopTyping = startTyping({ getEnv, fetchImpl, payload });
 
     await db("calorietext_messages?on_conflict=provider_message_id", { method: "POST", prefer: "resolution=ignore-duplicates,return=minimal", body: {
@@ -73,7 +78,7 @@ export async function processOne({ getEnv, fetchImpl = fetch, db = database(getE
       } else {
         let image;
         if (payload.media_url) {
-          await stopTyping.ready;
+          await Promise.all([readReceipt, stopTyping.ready]);
           try { image = await loadImage(payload.media_url, fetchImpl); }
           catch { result = { meal: null, reply: "I couldn't open that photo. Try opening it in Photos, taking a screenshot, and sending the screenshot here. You can also describe your meal and portions in a text." }; }
         }
@@ -97,7 +102,7 @@ export async function processOne({ getEnv, fetchImpl = fetch, db = database(getE
       await db("calorietext_meals?on_conflict=source_message_id", { method:"POST", prefer:"resolution=ignore-duplicates,return=minimal",
         body: { ...result.meal, client_id: client.id, source_message_id: message.id, is_estimate:true } });
     }
-    await stopTyping.ready;
+    await Promise.all([readReceipt, stopTyping.ready]);
     if (!await db("rpc/calorietext_begin_send", { method:"POST", body: { event_id:event.id,event_lock:event.lock_token } })) {
       await stopTyping(); return { state:"lease_lost" };
     }
@@ -122,6 +127,7 @@ export async function processOne({ getEnv, fetchImpl = fetch, db = database(getE
     return { state:"sent", reaction };
   } catch (error) {
     await stopTyping();
+    await readReceipt;
     const safeCode = /^[a-z_]+(?:_\d{3})?$/.test(error.message || "") ? error.message : "processing_failed";
     try { await db(`${path}&status=in.(processing,sending)`, { method:"PATCH", body: {
       status:sendStarted ? "uncertain" : "failed",last_error:safeCode,retry_after:new Date(Date.now()+60000).toISOString(),

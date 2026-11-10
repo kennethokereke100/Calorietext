@@ -45,6 +45,15 @@ provider credentials are included here.
   unsupported lines, failures, and timeouts cannot replay the text. Reaction
   callbacks and App Cards do not trigger the assistant. A crash can omit a
   cosmetic reaction; it is never retried. Emoji in reply text still work normally.
+- Read receipts for approved, opted-in 1:1 conversations are requested as text
+  or photo handling begins, alongside typing and before photo decoding. The
+  Sendblue API marks the conversation read, not a specific attachment. Receipt
+  failures are cosmetic: one bounded 8-second attempt per processing attempt,
+  no separate retries, no extra AI call, and no duplicate text. All receipt work
+  settles before the worker finishes. iMessage and RCS are attempted; visible
+  RCS receipts depend on the carrier. SMS and unknown transports are skipped.
+  A receipt means processing started, not that image identification or a meal
+  entry succeeded. Provider acceptance does not confirm on-device display.
 - iMessage typing dots start after contact and opt-out checks, alongside reply
   preparation, and remain active through photo processing, AI analysis, and
   handoff of the reply to Sendblue. Photo downloads/decoding wait for the bounded
@@ -127,7 +136,7 @@ npm ci --prefix backend --ignore-scripts
 node --test backend/tests/*.test.mjs
 ```
 
-All 44 Node tests passed, including a greeting through the REST adapter with
+All 48 Node tests passed, including a greeting through the REST adapter with
 empty HTTP 201 insert responses, preservation of false RPC results, synthetic
 HEIC conversion, pixel limits, corrupt inputs, and the authenticated media check.
 Reaction tests cover transport/handle filtering, the protein estimate requirement,
@@ -139,6 +148,9 @@ Typing checks cover request ordering, idempotent cleanup, failure isolation,
 and opt-out/service filtering. Photo-only JPEG and HEIC tests hold each stage
 open to verify dots stay active during download, analysis, and send handoff;
 unreadable images still clear the indicator after a single fallback reply.
+Read-receipt tests cover text/photo ordering, iMessage/RCS and opt-out filtering,
+provider errors, one reply after failure, and concurrent typing while read
+acknowledgment is pending.
 The HEIC fixture is a generated solid-color image, not a tester's photo.
 `tests/database.sql` verifies initial table permissions
 and constraints. `tests/pilot-database.sql` verifies worker leases, send fencing,
