@@ -5,8 +5,10 @@ import { sendReaction } from "./reactions.mjs";
 import { startTyping } from "./typing.mjs";
 const STOP = /^(stop|stopall|unsubscribe|cancel|end|quit)$/i;
 const START = /^(start|unstop)$/i;
-const HELP = /^(help|hi|hello|hey|get started)$/i;
-const GREETING = /^(hi|hello|hey)$/i;
+const HELP = /^(help|get started)$/i;
+// Whole greetings only. Mentions of the WhatsApp app or longer messages
+// must retain their full context and go through the model.
+const GREETING = /^(hi|hello|hey|hiya|what(?:['’]?s)?\s*up|whatsapp|wassup|sup)[!?.]*$/i;
 // Only a complete, unqualified thank-you gets this fast path. Longer messages
 // (including complaints with polite wording) still go through contextual AI.
 const THANKS = /^(thanks|thank\s+you|thx|ty)[!.]*$/i;
@@ -61,7 +63,7 @@ export async function processOne({ getEnv, fetchImpl = fetch, db = database(getE
     const message = (await db(`calorietext_messages?provider_message_id=eq.${encodeURIComponent(payload.message_handle)}&select=id`))[0];
     let result = event.reply_ciphertext ? await decryptPayload(event.reply_ciphertext, key) : null;
     if (!result) {
-      if (HELP.test(text) && !payload.media_url || START.test(text)) result = { reply: HELP_TEXT, meal: null, reaction: GREETING.test(text) ? "😊" : null };
+      if ((HELP.test(text) || GREETING.test(text)) && !payload.media_url || START.test(text)) result = { reply: HELP_TEXT, meal: null, reaction: GREETING.test(text) ? "👋" : null };
       else if (THANKS.test(text) && !payload.media_url) result = { reply: "You got it!", meal: null, reaction: "👍" };
       else if (TODAY.test(text) && !payload.media_url) {
         const day = new Date().toISOString().slice(0,10);

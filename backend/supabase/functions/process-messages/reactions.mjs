@@ -1,6 +1,6 @@
 import { sendblueHeaders } from "../_shared/runtime.mjs";
 
-export const REACTIONS = Object.freeze(["💪", "💧", "🙌", "👍", "😊", "😔"]);
+export const REACTIONS = Object.freeze(["💪", "💧", "🙌", "👍", "😊", "😔", "👋", "😋"]);
 // Primary handles are UUIDs on the pilot line. Do not derive a parent from
 // attachment-specific handles or guess multipart indexes.
 const PRIMARY_HANDLE = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;

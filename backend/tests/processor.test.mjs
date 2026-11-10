@@ -106,27 +106,39 @@ test("AI reactions are constrained and protein reactions require a substantial e
   }
   for(const estimate of [null,meal]) assert.equal(validateReply({reply:"Okay",meal:estimate,reaction:"💪"}).reaction,null);
   assert.equal(validateReply({reply:"Okay",meal:{...meal,protein_g:30},reaction:"💪"}).reaction,"💪");
-  for(const reaction of ["👍","😊","😔"]) assert.equal(validateReply({reply:"Okay",meal:null,reaction}).reaction,reaction);
+  for(const reaction of ["👍","😊","😔","👋","😋"]) assert.equal(validateReply({reply:"Okay",meal:null,reaction}).reaction,reaction);
 });
 
 test("simple thanks and greetings react without AI while qualified messages keep their context",async()=>{
   const options={service:"iMessage",messageHandle:"00000000-0000-4000-8000-000000000001",aiMeal:null};
-  for(const text of ["thanks","THANKS!","thank you","Thx","hi","hello","hey"]) {
+  const thanks=["thanks","THANKS!","thank you","Thx"];
+  const greetings=["hi","hello","hey","HEY!","Hello.","what's up","what’s up?","whats up","whatsup","whatsapp","wassup"];
+  for(const text of [...thanks,...greetings]) {
     const f=await fixture({...options,text});
     assert.deepEqual(await f.run(),{state:"sent",reaction:"accepted"});
     assert.equal(f.requests.some(r=>r.url.includes("api.openai.com")),false);
     assert.equal(f.calls.some(c=>c.path==="rpc/calorietext_reserve_ai_call"),false);
-    assert.equal(JSON.parse(f.requests.find(r=>r.url.endsWith("/send-reaction")).body).reaction,["hi","hello","hey"].includes(text)?"😊":"👍");
+    assert.equal(JSON.parse(f.requests.find(r=>r.url.endsWith("/send-reaction")).body).reaction,greetings.includes(text)?"👋":"👍");
     if(text==="thanks") assert.equal(JSON.parse(f.requests.find(r=>r.url.endsWith("/send-message")).body).content,"You got it!");
   }
   // These must reach the model as a whole, never the simple-thanks shortcut.
-  for(const text of ["thanks, but this is wrong","thanks for nothing","thanks?","great, another wrong answer"]) {
+  for(const text of ["thanks, but this is wrong","thanks for nothing","thanks?","great, another wrong answer","hey, this is wrong"]) {
     const f=await fixture({...options,text,reaction:"😔"});
     assert.equal((await f.run()).state,"sent");
     const ai=f.requests.find(r=>r.url.includes("api.openai.com"));
     assert.ok(ai);
     assert.equal(JSON.parse(ai.body).input.at(-1).content[0].text,text);
     assert.equal(JSON.parse(f.requests.find(r=>r.url.endsWith("/send-reaction")).body).reaction,"😔");
+  }
+  // The model owns contextual hunger/social reactions; no shortcut may log
+  // a meal or swallow questions just because they contain a greeting word.
+  for(const [text,reaction] of [["I'm hungry","😋"],["Hi there, hope you're doing well","👋"],["Do you work on WhatsApp?",null]]) {
+    const f=await fixture({...options,text,reaction});
+    assert.equal((await f.run()).state,"sent");
+    assert.equal(f.requests.filter(r=>r.url.includes("api.openai.com")).length,1);
+    assert.equal(f.calls.some(c=>c.path.startsWith("calorietext_meals?on_conflict")),false);
+    const sentReaction=f.requests.find(r=>r.url.endsWith("/send-reaction"));
+    assert.equal(sentReaction?JSON.parse(sentReaction.body).reaction:null,reaction);
   }
   const photo=await fixture({...options,text:"thanks",media:"https://example.com/photo.heic"});
   await photo.run();

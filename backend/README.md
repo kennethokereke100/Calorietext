@@ -20,11 +20,15 @@ provider credentials are included here.
   per UTC day across the pilot. Operator connection tests are separate from this quota.
 - Replies use a relaxed texting tone, optional contextual emojis, and brief
   acknowledgments. Ordinary replies do not repeat the command menu. The same AI
-  request can choose a reaction: 👍 for simple thanks, 😊 for friendly gestures,
-  😔 for displeasure, 💪 for a logged meal estimated at 20g+ protein, 💧 for
-  water, or 🙌 for a safe workout milestone. Displeasure takes priority over
+  request can choose a reaction: 👍 for simple thanks, 👋 for greetings and
+  friendly gestures, 😋 for ordinary hunger, 😔 for displeasure, 💪 for a logged
+  meal estimated at 20g+ protein, 💧 for water, or 🙌 for a safe workout milestone.
+  Saying "I'm hungry" or asking for food ideas does not create a meal entry.
+  Displeasure takes priority over
   polite words or sarcasm. Simple standalone thanks and greetings have a short
-  path without an AI call; longer messages retain their full context. Neutral
+  path without an AI call, including "what's up" and a standalone "whatsapp"
+  greeting; questions about the WhatsApp app and other longer messages retain
+  their full context. Neutral
   questions, uncertain inputs, and sensitive health or body-image contexts
   should get no reaction. Complaints also receive a helpful written response.
 - Reactions are optional iMessage tapbacks, not extra text messages. Only a
