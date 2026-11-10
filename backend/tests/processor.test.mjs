@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { processOne } from "../supabase/functions/process-messages/processor.mjs";
 import { encryptPayload, decryptPayload, phoneHash } from "../supabase/functions/_shared/runtime.mjs";
 import { trustedMediaUrl, loadImage } from "../supabase/functions/process-messages/media.mjs";
@@ -12,7 +13,8 @@ const ENV = { CALORIETEXT_INGEST_ENABLED:"true",CALORIETEXT_REPLY_ENABLED:"true"
   SENDBLUE_FROM_NUMBER:"+12025550123",PILOT_ALLOWED_NUMBERS:"+12025550124" };
 const meal = { description:"One apple",calories:95,protein_g:0.5,carbs_g:25,fat_g:0.3 };
 async function fixture({text="hello",media="",allowed=true,optedOut=false,budget=true,claim=true,lease=true,sendFails=false,mealWriteFails=false,
-  service=null,reaction=null,aiMeal=meal,reactionFails=false,typingFails=false,messageHandle="inbound-test"}={}) {
+  service=null,reaction=null,aiMeal=meal,reactionFails=false,typingFails=false,messageHandle="inbound-test",
+  requestGate=async()=>{},photoBytes=new Uint8Array([255,216,255,0])}={}) {
   const event = {id:"event-id",lock_token:"lock-id",payload_ciphertext:await encryptPayload({from_number:allowed?"+12025550124":"+12025550125",to_number:ENV.SENDBLUE_FROM_NUMBER,content:text,media_url:media,message_handle:messageHandle,service},ENV.MESSAGE_ENCRYPTION_KEY)};
   const calls=[], requests=[];
   const db=async(path,opts={})=>{
@@ -30,6 +32,8 @@ async function fixture({text="hello",media="",allowed=true,optedOut=false,budget
   };
   const fetchImpl=async(url,opts)=>{
     requests.push({url,...opts});
+    await requestGate(url,opts);
+    if(url.startsWith("https://storage.googleapis.com/inbound-file-store/")) return new Response(photoBytes);
     if(url.includes("api.openai.com")) return Response.json({status:"completed",output:[{type:"message",content:[{type:"output_text",text:JSON.stringify({reply:"Estimated apple: about 95 calories.",meal:aiMeal,reaction})}]}]});
     if(url.includes("send-message")) {
       if(sendFails) throw new Error("Sensitive provider failure must not be persisted");
@@ -162,7 +166,7 @@ test("contextual reactions follow a completed text and are never replayed",async
   }
 });
 
-test("typing starts before preparation and stops before sending or recording a failure",async()=>{
+test("typing starts before preparation and stops after send handoff or on failure",async()=>{
   for(const options of [{},{typingFails:true},{mealWriteFails:true},{sendFails:true},{lease:false}]) {
     const f=await fixture({service:"iMessage",text:"I ate an apple",...options});
     const outcome=await f.run();
@@ -173,9 +177,47 @@ test("typing starts before preparation and stops before sending or recording a f
     assert.equal(JSON.parse(indicators[1].body).max_duration_ms,undefined);
     assert.ok(f.requests.indexOf(indicators[0])<f.requests.findIndex(r=>r.url.includes("api.openai.com")));
     const sendIndex=f.requests.findIndex(r=>r.url.endsWith("/send-message"));
-    if(sendIndex>=0) assert.ok(f.requests.indexOf(indicators[1])<sendIndex);
+    if(sendIndex>=0) assert.ok(f.requests.indexOf(indicators[1])>sendIndex);
     assert.equal(f.requests.filter(r=>r.url.endsWith("/send-message")).length,options.mealWriteFails||options.lease===false?0:1);
   }
+});
+
+test("photo-only JPEG and HEIC keep typing active through download, AI and send handoff",async()=>{
+  const heic=Buffer.from(readFileSync(new URL("./fixtures/green.heic.base64",import.meta.url),"utf8").trim(),"base64");
+  for(const photoBytes of [new Uint8Array([255,216,255,0]),heic]) {
+    const gates=Object.fromEntries(["start","photo","ai","send"].map(name=>{
+      let release,entered;
+      return [name,{wait:new Promise(r=>release=r),reached:new Promise(r=>entered=r),release:()=>release(),entered:()=>entered()}];
+    }));
+    const f=await fixture({text:"",service:"iMessage",media:"https://storage.googleapis.com/inbound-file-store/photo",photoBytes,
+      requestGate:async(url,opts)=>{
+        const stage=url.endsWith("/send-typing-indicator")?JSON.parse(opts.body).state:
+          url.includes("storage.googleapis.com")?"photo":url.includes("api.openai.com")?"ai":url.endsWith("/send-message")?"send":null;
+        if(gates[stage]) {gates[stage].entered();await gates[stage].wait;}
+      }});
+    const pending=f.run();
+    await gates.start.reached;
+    assert.equal(JSON.parse(f.requests[0].body).max_duration_ms,120000);
+    assert.equal(f.requests.some(r=>r.url.includes("storage.googleapis.com")),false,"photo work waits for the typing start attempt");
+    gates.start.release();
+    for(const stage of ["photo","ai","send"]) {
+      await gates[stage].reached;
+      assert.equal(f.requests.some(r=>r.url.endsWith("/send-typing-indicator")&&JSON.parse(r.body).state==="stop"),false,`dots stay active during ${stage}`);
+      gates[stage].release();
+    }
+    assert.equal((await pending).state,"sent");
+    const ai=JSON.parse(f.requests.find(r=>r.url.includes("api.openai.com")).body);
+    assert.match(JSON.stringify(ai),/data:image\/jpeg;base64,/);
+    assert.deepEqual(f.requests.filter(r=>r.url.endsWith("/send-typing-indicator")).map(r=>JSON.parse(r.body).state),["start","stop"]);
+  }
+});
+
+test("unreadable photo stops typing after one fallback reply without using AI",async()=>{
+  const f=await fixture({text:"",service:"iMessage",media:"https://storage.googleapis.com/inbound-file-store/photo",photoBytes:new Uint8Array()});
+  assert.equal((await f.run()).state,"sent");
+  assert.equal(f.requests.some(r=>r.url.includes("api.openai.com")),false);
+  assert.equal(f.requests.filter(r=>r.url.endsWith("/send-message")).length,1);
+  assert.equal(JSON.parse(f.requests.at(-1).body).state,"stop");
 });
 
 test("typing does not contact unsupported services, opted-out or unapproved users",async()=>{

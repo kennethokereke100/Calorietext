@@ -73,6 +73,7 @@ export async function processOne({ getEnv, fetchImpl = fetch, db = database(getE
       } else {
         let image;
         if (payload.media_url) {
+          await stopTyping.ready;
           try { image = await loadImage(payload.media_url, fetchImpl); }
           catch { result = { meal: null, reply: "I couldn't open that photo. Try opening it in Photos, taking a screenshot, and sending the screenshot here. You can also describe your meal and portions in a text." }; }
         }
@@ -96,10 +97,10 @@ export async function processOne({ getEnv, fetchImpl = fetch, db = database(getE
       await db("calorietext_meals?on_conflict=source_message_id", { method:"POST", prefer:"resolution=ignore-duplicates,return=minimal",
         body: { ...result.meal, client_id: client.id, source_message_id: message.id, is_estimate:true } });
     }
-    // Stop before releasing the queue lease so a subsequent reply's dots
-    // cannot be cleared by this worker's cleanup.
-    await stopTyping();
-    if (!await db("rpc/calorietext_begin_send", { method:"POST", body: { event_id:event.id,event_lock:event.lock_token } })) return { state:"lease_lost" };
+    await stopTyping.ready;
+    if (!await db("rpc/calorietext_begin_send", { method:"POST", body: { event_id:event.id,event_lock:event.lock_token } })) {
+      await stopTyping(); return { state:"lease_lost" };
+    }
     sendStarted = true;
     // The vendor's send endpoint does not document an idempotency key. Never blindly retry an ambiguous send.
     const response = await fetchImpl("https://api.sendblue.com/api/send-message", {
@@ -107,6 +108,9 @@ export async function processOne({ getEnv, fetchImpl = fetch, db = database(getE
       body:JSON.stringify({ number:payload.from_number,from_number:getEnv("SENDBLUE_FROM_NUMBER"),content:result.reply }),
     });
     const sent = await response.json();
+    // Keep dots through photo/model work AND the send request. Clear them
+    // before releasing the lease, including rejected or ambiguous sends.
+    await stopTyping();
     if (!response.ok || !sent.message_handle || ["ERROR","DECLINED","TIMEOUT"].includes(sent.status)) {
       await finish("uncertain", `sendblue_${response.status}`); return { state:"send_needs_review" };
     }

@@ -39,10 +39,15 @@ provider credentials are included here.
   callbacks and App Cards do not trigger the assistant. A crash can omit a
   cosmetic reaction; it is never retried. Emoji in reply text still work normally.
 - iMessage typing dots start after contact and opt-out checks, alongside reply
-  preparation (including photo processing), and stop when the reply is ready or
-  processing fails. Start and stop calls have 1.5-second timeouts and cannot fail
-  or replay the reply. Cleanup completes before releasing the queue lease, and
-  a 60-second provider expiry bounds a crashed worker's indicator. There is no
+  preparation, and remain active through photo processing, AI analysis, and
+  handoff of the reply to Sendblue. Photo downloads/decoding wait for the bounded
+  start attempt, so image work cannot race ahead of it. Start has a 10-second
+  timeout and stop has a 5-second timeout; neither can fail or replay the reply.
+  Status-only warnings
+  expose provider failures without recording contacts, images, or response bodies.
+  Cleanup completes before releasing the queue lease, including on failure, and
+  a provider expiry (120 seconds for photos, 60 for text) bounds a crashed
+  worker's indicator. There is no
   artificial typing delay, extra AI call, recurring job, or SMS/RCS indicator.
   The configured line accepted a short start/stop probe. Delivery is best effort
   and requires a recent iMessage conversation; a new contact may not see dots yet.
@@ -115,13 +120,15 @@ npm ci --prefix backend --ignore-scripts
 node --test backend/tests/*.test.mjs
 ```
 
-All 40 Node tests passed, including a greeting through the REST adapter with
+All 42 Node tests passed, including a greeting through the REST adapter with
 empty HTTP 201 insert responses, preservation of false RPC results, synthetic
 HEIC conversion, pixel limits, corrupt inputs, and the authenticated media check.
 Reaction tests cover transport/handle filtering, the protein estimate requirement,
 completion ordering, failures without replay, opt-out, and ignored reaction callbacks.
 Typing checks cover request ordering, idempotent cleanup, failure isolation,
-and opt-out/service filtering.
+and opt-out/service filtering. Photo-only JPEG and HEIC tests hold each stage
+open to verify dots stay active during download, analysis, and send handoff;
+unreadable images still clear the indicator after a single fallback reply.
 The HEIC fixture is a generated solid-color image, not a tester's photo.
 `tests/database.sql` verifies initial table permissions
 and constraints. `tests/pilot-database.sql` verifies worker leases, send fencing,
