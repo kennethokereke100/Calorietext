@@ -61,7 +61,7 @@ export async function processOne({ getEnv, fetchImpl = fetch, db = database(getE
         let image;
         if (payload.media_url) {
           try { image = await loadImage(payload.media_url, fetchImpl); }
-          catch { result = { meal: null, reply: "I couldn't read that attachment. Please send a clear JPG, PNG, or WebP food photo under 8 MB, or describe your meal and portions in a text." }; }
+          catch { result = { meal: null, reply: "I couldn't open that photo. Try opening it in Photos, taking a screenshot, and sending the screenshot here. You can also describe your meal and portions in a text." }; }
         }
         if (!result) {
           const reserved = await db("rpc/calorietext_reserve_ai_call", { method: "POST", body: {} });

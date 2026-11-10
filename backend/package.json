@@ -1,0 +1,10 @@
+{
+  "name": "calorietext-backend",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test tests/*.test.mjs" },
+  "dependencies": {
+    "jpeg-js": "0.4.4",
+    "libheif-js": "1.23.5"
+  }
+}

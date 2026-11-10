@@ -156,5 +156,5 @@ test("lost lease prevents sending; ambiguous send is not automatically retried",
 
 test("unsupported photo prompts for another format without contacting an arbitrary host",async()=>{
   const f=await fixture({text:"",media:"https://example.com/photo.heic"});assert.equal((await f.run()).state,"sent");
-  assert.equal(f.requests.length,1);assert.ok(JSON.parse(f.requests[0].body).content.includes("JPG"));
+  assert.equal(f.requests.length,1);assert.ok(JSON.parse(f.requests[0].body).content.includes("screenshot"));
 });

@@ -17,3 +17,18 @@ test("connection check authenticates and does not expose credentials", async () 
   for (const value of Object.values(env)) assert.ok(!body.includes(value));
   assert.ok(!urls.some(url => url.endsWith("/responses")));
 });
+
+test("operator media check returns only metadata and never calls AI or messaging",async()=>{
+  const urls=[];
+  const handler=createConnectionCheck({getEnv:key=>env[key],fetchImpl:async url=>{
+    urls.push(url);return new Response(new Uint8Array([255,216,255,0]));
+  }});
+  const raw=JSON.stringify({media_url:"https://storage.googleapis.com/inbound-file-store/test.jpg"});
+  const headers={"x-calorietext-admin-secret":env.CALORIETEXT_ADMIN_SECRET,"content-length":String(raw.length)};
+  const response=await handler(new Request("https://example.com?test_media=true",{method:"POST",headers,body:raw}));
+  assert.deepEqual(await response.json(),{checks:{media:"passed"},format:"image/jpeg"});
+  assert.equal(urls.length,1);
+  const bad=JSON.stringify({media_url:"https://127.0.0.1/photo.jpg"});
+  const denied=await handler(new Request("https://example.com?test_media=true",{method:"POST",headers:{...headers,"content-length":String(bad.length)},body:bad}));
+  assert.equal(denied.status,422);assert.equal(urls.length,1);
+});

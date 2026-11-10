@@ -19,9 +19,12 @@ provider credentials are included here.
   at most 800 output tokens, and a database-enforced ceiling of 20 worker AI calls
   per UTC day across the pilot. Operator connection tests are separate from this quota.
 - Photos are fetched only from the documented Sendblue CDN bucket, without
-  redirects, with an 8 MB bound and JPEG/PNG/WebP signature checks. Other formats
-  prompt the tester to resend or describe the meal. Real-phone photo delivery
-  still needs validation, including the actual CDN URL used for inbound images.
+  redirects, with an 8 MB bound and JPEG/PNG/WebP signature checks. HEIC/HEIF
+  containers with supported HEVC brands are converted inside the backend to
+  JPEG using the primary image, with a 13-megapixel limit before decoding and a
+  1,536-pixel output long edge. Conversion copies no source EXIF/GPS metadata.
+  Unsupported or oversized images get a screenshot fallback. The actual
+  inbound camera-photo CDN and HEIC conversion passed a hosted operator check.
 - Queue leases serialize work. A send with an uncertain result is marked
   `uncertain` for review, not automatically repeated: the vendor send endpoint
   does not document an idempotency key. A successful API acceptance is not proof
@@ -39,8 +42,11 @@ The authenticated connection check confirmed both flags are **true** and all
 three service connections pass on 2026-11-10 UTC. The database still enforces
 20 worker AI requests per UTC day. The first real inbound greeting reached the
 backend; after correcting empty successful REST insert responses, its retry
-completed and Sendblue accepted the reply. Device delivery and the real-photo
-test still need confirmation. The public website button remains in demo mode.
+completed and Sendblue reported the reply delivered. The first real camera
+photo arrived as HEIC and triggered the old format fallback. Automatic conversion
+is now deployed and passed a hosted check with that same photo; a new photo
+message still needs end-to-end analysis/delivery confirmation. The public
+website button remains in demo mode.
 
 `schedule.sql` is a reviewable proposal, **not an applied migration**. Recurring
 worker calls and retention deletes still await the owner's approval; the latest
@@ -74,11 +80,14 @@ is sent to OpenAI, Sendblue, or the browser.
 ## Verification and deployment
 
 ```sh
+npm ci --prefix backend --ignore-scripts
 node --test backend/tests/*.test.mjs
 ```
 
-All 27 Node tests passed, including a greeting through the REST adapter with
-empty HTTP 201 insert responses and preservation of false RPC results.
+All 31 Node tests passed, including a greeting through the REST adapter with
+empty HTTP 201 insert responses, preservation of false RPC results, synthetic
+HEIC conversion, pixel limits, corrupt inputs, and the authenticated media check.
+The HEIC fixture is a generated solid-color image, not a tester's photo.
 `tests/database.sql` verifies initial table permissions
 and constraints. `tests/pilot-database.sql` verifies worker leases, send fencing,
 daily limits, and private RPC access. Run the pilot database test only with the
@@ -90,13 +99,18 @@ recorded as `calorietext_backend_foundation` and `calorietext_private_pilot`.
 Do not blindly reapply them. Use migration history for generated versions and
 `supabase migration new` to generate future migration files.
 
-Deploy each function with its relative dependencies under `functions/`.
+Deploy each function with its relative dependencies under `functions/` and
+`deno.json` as the import map. The two codec packages have exact version pins;
+`package-lock.json` locks the local test dependencies. See `THIRD_PARTY.md`.
 JWT verification is disabled because the receiver validates `sb-signing-secret`
 and operator endpoints validate `x-calorietext-admin-secret` instead.
 
 `connection-check` requires the operator secret and returns status only.
 The optional `?test_ai=true` and `?test_reply=true` flags run fixed, small model
 checks that use API balance; they accept no custom user prompt and send no texts.
+`?test_media=true` accepts an authenticated, bounded JSON body containing one
+trusted Sendblue `media_url`; it returns conversion status and image format
+only. It runs no AI request, sends no message, and stores no photo.
 
 ## Real-phone test and pending recurring jobs
 

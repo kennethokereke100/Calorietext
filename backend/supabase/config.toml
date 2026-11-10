@@ -5,11 +5,14 @@ project_id = "calorietext"
 # The handler rejects requests before reading data unless that secret matches.
 verify_jwt = false
 entrypoint = "./functions/sendblue-webhook/index.ts"
+import_map = "./functions/deno.json"
 
 [functions.connection-check]
 verify_jwt = false
 entrypoint = "./functions/connection-check/index.ts"
+import_map = "./functions/deno.json"
 
 [functions.process-messages]
 verify_jwt = false
 entrypoint = "./functions/process-messages/index.ts"
+import_map = "./functions/deno.json"

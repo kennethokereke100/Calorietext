@@ -24,13 +24,20 @@ export async function loadImage(value, fetchImpl = fetch) {
       chunks.push(value);
     }
   } finally { reader.releaseLock(); }
-  const bytes = new Uint8Array(size); let offset = 0;
+  let bytes = new Uint8Array(size); let offset = 0;
   for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
   let mime;
   if (size >= 3 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255) mime = "image/jpeg";
   else if (size >= 8 && [137,80,78,71,13,10,26,10].every((v,i) => bytes[i] === v)) mime = "image/png";
   else if (size >= 12 && new TextDecoder().decode(bytes.slice(0,4)) === "RIFF" && new TextDecoder().decode(bytes.slice(8,12)) === "WEBP") mime = "image/webp";
-  else throw new Error("unsupported_photo");
+  else {
+    // Lazy-load the WASM codec only for HEIC candidates, never for ordinary photos.
+    if (size < 16 || new TextDecoder().decode(bytes.subarray(4,8)) !== "ftyp") throw new Error("unsupported_photo");
+    const {convertHeic}=await import("./heic.mjs");
+    bytes=await convertHeic(bytes);
+    if(bytes.length > MAX_IMAGE_BYTES) throw new Error("unsupported_photo");
+    mime="image/jpeg";
+  }
   let binary = "";
   for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
   return `data:${mime};base64,${btoa(binary)}`;

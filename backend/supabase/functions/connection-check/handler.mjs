@@ -1,11 +1,26 @@
 import { json, secretsMatch, database, sendblueHeaders, responseText } from "../_shared/runtime.mjs";
 import { generateReply } from "../process-messages/ai.mjs";
+import { loadImage } from "../process-messages/media.mjs";
 
 export function createConnectionCheck({ getEnv, fetchImpl = fetch }) {
   return async req => {
     if (req.method !== "POST") return json(405, { error: "method_not_allowed" });
     if (!await secretsMatch(getEnv("CALORIETEXT_ADMIN_SECRET"), req.headers.get("x-calorietext-admin-secret"))) {
       return json(401, { error: "unauthorized" });
+    }
+    // Operator-only format check: trusted CDN input, metadata-only output,
+    // no model request, outbound text, persistent photo, or raw image response.
+    if (new URL(req.url).searchParams.get("test_media") === "true") {
+      const length=Number(req.headers.get("content-length"));
+      if (!Number.isInteger(length) || length<1 || length>4096) return json(400,{error:"invalid_media_request"});
+      try {
+        const raw=await req.text();
+        if(raw.length>4096) return json(400,{error:"invalid_media_request"});
+        const data=JSON.parse(raw);
+        if(typeof data.media_url!=="string" || data.media_url.length>4000) return json(400,{error:"invalid_media_request"});
+        const image=await loadImage(data.media_url,fetchImpl);
+        return json(200,{checks:{media:"passed"},format:image.slice(5,image.indexOf(";"))});
+      } catch { return json(422,{checks:{media:"failed"}}); }
     }
     const checks = {};
     try {
